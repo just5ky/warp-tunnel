@@ -1,0 +1,76 @@
+name: Docker CI
+
+on:
+  workflow_run:
+    workflows: ["build"]
+    types: [requested]
+    branches:
+      - 'latest'
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 1'
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+
+    permissions:
+      packages: write
+      contents: read
+
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker buildx
+        uses: docker/setup-buildx-action@v3.9.0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - name: Log in to the Container registry
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GIT_TOKEN }}
+      
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@369eb591f429131d6889c46b94e711f089e6ca96
+        with:
+          images: |
+            justsky/warp-tunnel
+            ghcr.io/${{ github.repository }}
+      
+      - name: Build and push Docker images
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/cf-warp-tunnel:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/cf-warp-tunnel:buildcache,mode=max
+
+      - name: Send Discord Notif
+        uses: sarisia/actions-status-discord@v1
+        if: always()
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          status: ${{ job.status }}
+          #content: "Honeypots Docker image has been pushed to repo."
+          title: "CI"
+          description: "Build and pushed Docker image"
+          color: 0x0000ff
+          url: "https://github.com/just5ky/warp-tunnel"
+          username: GitHub Actions
+          avatar_url: https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/github.png
